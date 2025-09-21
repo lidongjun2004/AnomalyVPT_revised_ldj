@@ -1,0 +1,17 @@
+chardet
+regex
+scikit-learn
+scikit-image
+matplotlib
+kornia
+einops
+yacs
+torchmetrics
+tabulate
+loguru
+tqdm
+opencv-python
+ftfy
+webdataset
+transformers
+timm

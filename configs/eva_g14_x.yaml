@@ -1,0 +1,36 @@
+DATALOADER:
+  TRAIN:
+    BATCH_SIZE: 32
+    SAMPLER: "SequentialSampler"
+#    SAMPLER: "RandomSampler"
+  TEST:
+    BATCH_SIZE: 64
+  NUM_WORKERS: 8
+
+DATASET:
+  ROOT: "/data/users/ldj/dataset"
+  NUM_SHOTS: 256
+  MIX: False
+
+OPTIM:
+  NAME: "adamw"
+  LR: 0.002
+  MAX_EPOCH: 50
+  LR_SCHEDULER: "cosine"
+  WARMUP_EPOCH: 0
+  WARMUP_TYPE: "constant"
+  WARMUP_CONS_LR: 1e-6
+
+TRAIN:
+  CHECKPOINT_FREQ: 3
+  PRINT_FREQ: 5
+
+
+INPUT:
+  SIZE: (224, 224)
+
+MODEL:
+  VP_LENGTH: 16
+  INIT_WEIGHTS: ""
+  PATCH_SIZE: 14
+  MODEL_NAME: "EVA01-CLIP-g-14-plus"
