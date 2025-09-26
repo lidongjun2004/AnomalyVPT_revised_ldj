@@ -7,7 +7,7 @@ trainset="mvtec"
 testset="visa"
 
 # 配置名称
-config_name="ViT-L-14-336"
+config_name="ViT-B-16-224"
 
 # 输出目录
 output_dir="./output/test_${testset}_${config_name}/"

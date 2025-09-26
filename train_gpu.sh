@@ -4,7 +4,7 @@
 dataset="mvtec"
 
 # 定义配置名称
-config_name="ViT-B-16"  
+config_name="ViT-B-16-224"  
 
 # 定义输出目录
 output_dir="./output/train_vpt_${dataset}_${config_name}/"

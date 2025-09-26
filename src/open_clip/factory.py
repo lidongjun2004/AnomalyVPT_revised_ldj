@@ -298,7 +298,7 @@ def create_customer_model(
     if isinstance(device, str):
         device = torch.device(device)
 
-    if pretrained and pretrained.lower() == 'openai' and model_name != 'ViT-L-14-336':
+    if pretrained and pretrained.lower() == 'openai' and model_name != 'ViT-B-16-224':
         logging.info(f'Loading pretrained {model_name} from OpenAI.')
         model = load_openai_model(
             model_name,

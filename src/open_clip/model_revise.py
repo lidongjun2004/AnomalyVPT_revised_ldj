@@ -78,7 +78,7 @@ class CLIPPromptCfg:
 
 
 prompt_cfg = CLIPPromptCfg()
-prompt_cfg.vision_prompt_layer_idx = [20]
+prompt_cfg.vision_prompt_layer_idx = [8]
 # prompt_cfg.vision_prompt_layer_idx = []
 # prompt_cfg.vision_prompt_layer_idx = [4, 6, 8, 10, 12, 14, 16, 18, 20]
 prompt_cfg.vision_prompt_length = [16]
