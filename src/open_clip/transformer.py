@@ -675,7 +675,7 @@ class VisionPromptTransformer(nn.Module):
                 # origin -2 feature
                 patch_features = [x.permute(1, 0, 2)[
                     :, : (new_grid_size[0] * new_grid_size[1] + 1), :
-                ] for _ in range(4)]
+                ] for _ in range(4)] # shape = [4, B, grid_count + 1, embed_size] = [4, 32, 577, 1024]
 
                 # update -1 feature
                 # block = self.transformer.resblocks[-1]
@@ -762,8 +762,7 @@ class VisionPromptTransformer(nn.Module):
                 self.patch_size[1],
             )
             x = x.permute(0, 2, 4, 1, 3, 5)
-            x = x.reshape(x.shape[0], self.grid_size[0]
-                          * self.grid_size[1], -1)
+            x = x.reshape(x.shape[0], self.grid_size[0] * self.grid_size[1], -1)
             x = self.patchnorm_pre_ln(x)
 
         else:
@@ -870,6 +869,32 @@ class VisionPromptTransformer(nn.Module):
         if mask and proj:
             return self.res  # tokens_list, pooled, tokens @ self.proj, output_layers
         return self.res  # pooled, output_layers
+
+#       self.res = {
+#           "x": [32, 213, 768],           # 所有tokens (cls + patches + prompts)
+#           "x_seg": [32, 196, 768],       # 仅图像patch tokens
+#           "pooled": [32, 512],           # cls token投影后的特征
+#           "seg_group": [32, 196, 512],   # patch tokens投影后的特征
+#           "tokens": [32, 196, 512],      # 图像patch tokens投影后
+#           "tokens_list": None,           # 未使用
+#           "output_layers": [              # 4个不同层的cls token特征
+#               [32, 512], [32, 512], [32, 512], [32, 512]
+#           ],
+#           "output_token_layers": [        # 4个不同层的patch tokens特征
+#               [32, 196, 512], [32, 196, 512], [32, 196, 512], [32, 196, 512]
+#           ],
+#           "fpn_feat": [                   # FPN多尺度特征
+#               [32, 784, 512],    # 28×28=784
+#               [32, 196, 512],    # 14×14=196  
+#               [32, 49, 512],     # 7×7=49
+#               [32, 9, 512]       # 3×3=9
+#           ],
+#           "inner_fpn_feat": None,         # 清空中间特征
+#           "shape": [32, 768, 14, 14],     # 原始卷积输出形状
+#           "feat": [                       # transformer中间特征
+#               [32, 197, 768], [32, 197, 768], [32, 197, 768], [32, 197, 768]
+#           ]
+#       }
 
 
 class VisionTransformer(nn.Module):
