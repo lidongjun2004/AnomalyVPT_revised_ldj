@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from src.open_clip import tokenizer
 
 from src.models.SegDecoder import SegDecoder, FPN, TextInceptionSegDecoder, CrossInceptionSegDecoder, GaussianBlur
-
+from src.models.CATSegDecoder import CATSegDecoder
 
 class PromptOrder:
     def __init__(self) -> None:
@@ -159,7 +159,7 @@ class CustomCLIP(nn.Module):
 
         prompt_length = cfg.MODEL.VP_LENGTH
         self.gaussian_blur = GaussianBlur()
-        self.seg_decoder = SegDecoder(input_dim=num_patches + prompt_length,
+        self.seg_decoder = CATSegDecoder(input_dim=num_patches + prompt_length,
                                       output_dim=num_patches + prompt_length,
                                       embed_size=self.clip_model.visual.embed_dim,
                                       output_size=embed_size,
@@ -232,11 +232,11 @@ class CustomCLIP(nn.Module):
         expand_text_features = text_features.repeat(image_features.shape[0], 1, 1) # shape = [B, 2, C] = [32, 2, 512]
         if up:
             # seg decoder
-            patch_features = res['tokens'] # shape = [B, H*W, C] = [32, 576, 512]
+            patch_features = res['tokens'] # shape = [B, H*W, C] = [32, 196, 512]
             patch_features = self.seg_decoder(
-                patch_features, expand_text_features, idx=-1)  # shape = [B, H*W, C] = [32, 576, 512]
+                patch_features, expand_text_features, idx=-1)  # shape = [B, H*W, C] = [32, 196, 512]
             patch_features = patch_features / \
-                patch_features.norm(dim=-1, keepdim=True) # shape = [B, H*W, C] = [32, 576, 512]
+                patch_features.norm(dim=-1, keepdim=True) # shape = [B, H*W, C] = [32, 196, 512]
             anomaly_map = calc_anomaly_map(patch_features, text_features, patch_size=self.patch_size, img_size=self.image_size[0],
                                            scale=logit_scale, blur=self.gaussian_blur)
             

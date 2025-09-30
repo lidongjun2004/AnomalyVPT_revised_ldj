@@ -723,8 +723,8 @@ class Aggregator(nn.Module):
             logit = out
         return logit
 
-class CATSegDecoder(nn.Module):
-    def __init__(self, 
+if __name__ == "__main__":
+    model = Aggregator(
         text_guidance_dim=512,
         text_guidance_proj_dim=128,
         appearance_guidance_dim=512,
@@ -732,6 +732,7 @@ class CATSegDecoder(nn.Module):
         decoder_dims = (64, 32),
         decoder_guidance_dims=(256, 128),
         decoder_guidance_proj_dims=(32, 16),
+        num_layers=4,
         nheads=4, 
         hidden_dim=128,
         pooling_size=(6, 6),
@@ -740,18 +741,9 @@ class CATSegDecoder(nn.Module):
         attention_type='linear',
         prompt_channel=1,
         pad_len=256,
-    ) -> None:
-        """
-        Cost Aggregation Model for CAT-Seg
-        Args:
-            text_guidance_dim: Dimension of text guidance
-            text_guidance_proj_dim: Dimension of projected text guidance
-            appearance_guidance_dim: Dimension of appearance guidance
-            appearance_guidance_proj_dim: Dimension of projected appearance guidance
-            decoder_dims: Upsampling decoder dimensions
-            decoder_guidance_dims: Upsampling decoder guidance dimensions
-            decoder_guidance_proj_dims: Upsampling decoder guidance projected dimensions
-            nheads: Number of attention heads
-            hidden_dim: Hidden dimension for transformer blocks
-            pooling_size: Pooling size for the class aggregation
-        """
+    ).cuda()
+    img_feats = torch.randn(2, 512, 24, 24).cuda()
+    text_feats = torch.randn(2, 300, 1, 512).cuda()
+    appearance_guidance = (torch.randn(2, 512, 24, 24).cuda(), torch.randn(2, 256, 48, 48).cuda(), torch.randn(2, 128, 96, 96).cuda())
+    out = model(img_feats, text_feats, appearance_guidance)
+    print(out.shape)

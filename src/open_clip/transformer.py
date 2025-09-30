@@ -875,13 +875,13 @@ class VisionPromptTransformer(nn.Module):
 #           "x_seg": [32, 196, 768],       # 仅图像patch tokens
 #           "pooled": [32, 512],           # cls token投影后的特征
 #           "seg_group": [32, 196, 512],   # patch tokens投影后的特征
-#           "tokens": [32, 196, 512],      # 图像patch tokens投影后
+#           "tokens": [32, 576, 512],      # 图像patch tokens投影后
 #           "tokens_list": None,           # 未使用
 #           "output_layers": [              # 4个不同层的cls token特征
 #               [32, 512], [32, 512], [32, 512], [32, 512]
 #           ],
 #           "output_token_layers": [        # 4个不同层的patch tokens特征
-#               [32, 196, 512], [32, 196, 512], [32, 196, 512], [32, 196, 512]
+#               [32, 576, 512], [32, 576, 512], [32, 576, 512], [32, 576, 512]
 #           ],
 #           "fpn_feat": [                   # FPN多尺度特征
 #               [32, 784, 512],    # 28×28=784
