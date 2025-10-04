@@ -17,5 +17,3 @@ CUDA_VISIBLE_DEVICES=2 python main.py \
   --seed 1003 \
   --device 0 \
   --pixel
-
-# --pixel

@@ -1,0 +1,6 @@
+2025-10-04 10:56:07.464 | INFO     | src.datasets.Dataset:read_split:290 - Reading split from /hy-tmp/ldj/dataset/split_mvtec/mvtec_ad/split.json
+2025-10-04 10:56:07.497 | INFO     | src.datasets.Dataset:__init__:124 - Loading preprocessed few-shot data from /hy-tmp/ldj/dataset/split_mvtec/mvtec_ad/split_fewshot/shot_256-seed_1003.pkl
+2025-10-04 10:56:07.500 | INFO     | src.helper:build_model:21 - Loading model ViT-B-16
+2025-10-04 10:56:07.501 | INFO     | src.helper:build_model:24 - Building CustomCLIP
+2025-10-04 10:56:07.501 | INFO     | src.helper:build_model:30 - Now load openai model
+2025-10-04 10:56:10.664 | INFO     | src.open_clip.model_revise:_build_vision_tower:157 - CLIPPromptCfg(vision_prompt_length=[16], vision_prompt_layer_idx=[8], text_prompt_length=None, text_prompt_layer_idx=None, group_layer_idx=None, group_length=None, feature_layer=[7, 11, 15, 23], pseudo_layer=None, mid_loss=False)

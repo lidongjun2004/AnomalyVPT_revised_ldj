@@ -17,7 +17,7 @@ from torch.utils.checkpoint import checkpoint
 from .hf_model import HFTextEncoder
 from .modified_resnet import ModifiedResNet
 from .timm_model import TimmModel
-from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer, \
+from .transformer_CATSeg import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer, \
     VisionPromptTransformer, TextPromptTransformer
 from .utils import to_2tuple
 
@@ -67,30 +67,15 @@ class CLIPTextCfg:
 
 @dataclass
 class CLIPPromptCfg:
-    vision_prompt_length: int = None
+    vision_prompt_length: list = None
     vision_prompt_layer_idx: list = None
     text_prompt_length: int = None
     text_prompt_layer_idx: list = None
     group_layer_idx: list = None
+    group_length: list = None
     feature_layer: list = None
     pseudo_layer: list = None
     mid_loss: bool = False
-
-
-prompt_cfg = CLIPPromptCfg()
-prompt_cfg.vision_prompt_layer_idx = [8]
-# prompt_cfg.vision_prompt_layer_idx = []
-# prompt_cfg.vision_prompt_layer_idx = [4, 6, 8, 10, 12, 14, 16, 18, 20]
-prompt_cfg.vision_prompt_length = [16]
-# prompt_cfg.vision_prompt_length = []
-# prompt_cfg.vision_prompt_length = [16, 16, 16, 16, 16, 16, 16, 16, 16]
-prompt_cfg.feature_layer = [7, 11, 15, 23] 
-prompt_cfg.group_layer_idx = [10, 14, 18, 22]
-prompt_cfg.group_length = [16, 8, 4, 2]
-# prompt_cfg.feature_layer = [23]
-# prompt_cfg.pseudo_layer = [2]
-prompt_cfg.pseudo_layer = None
-prompt_cfg.mid_loss = True
 
 
 def get_cast_dtype(precision: str):
@@ -105,11 +90,14 @@ def get_cast_dtype(precision: str):
 def _build_vision_tower(
         embed_dim: int,
         vision_cfg: CLIPVisionCfg,
+        prompt_cfg: CLIPPromptCfg,
         quick_gelu: bool = False,
         cast_dtype: Optional[torch.dtype] = None
 ):
     if isinstance(vision_cfg, dict):
         vision_cfg = CLIPVisionCfg(**vision_cfg)
+    if isinstance(prompt_cfg, dict):
+        prompt_cfg = CLIPPromptCfg(**prompt_cfg)
 
     # OpenAI models are pretrained w/ QuickGELU but native nn.GELU is both faster and more
     # memory efficient in recent PyTorch releases (>= 1.10).
@@ -196,11 +184,14 @@ def _build_vision_tower(
 def _build_text_tower(
         embed_dim: int,
         text_cfg: CLIPTextCfg,
+        prompt_cfg: CLIPPromptCfg,
         quick_gelu: bool = False,
         cast_dtype: Optional[torch.dtype] = None,
 ):
     if isinstance(text_cfg, dict):
         text_cfg = CLIPTextCfg(**text_cfg)
+    if isinstance(prompt_cfg, dict):
+        prompt_cfg = CLIPPromptCfg(**prompt_cfg)
 
     if text_cfg.hf_model_name:
         text = HFTextEncoder(
@@ -325,15 +316,16 @@ class CUSTOMCLIP(nn.Module):
             embed_dim: int,
             vision_cfg: CLIPVisionCfg,
             text_cfg: CLIPTextCfg,
+            prompt_cfg: CLIPPromptCfg,
             quick_gelu: bool = False,
             cast_dtype: Optional[torch.dtype] = None,
             output_dict: bool = False,
     ):
         super().__init__()
         self.output_dict = output_dict
-        self.visual = _build_vision_tower(embed_dim, vision_cfg, quick_gelu, cast_dtype)
+        self.visual = _build_vision_tower(embed_dim, vision_cfg, prompt_cfg, quick_gelu, cast_dtype)
 
-        text = _build_text_tower(embed_dim, text_cfg, quick_gelu, cast_dtype)
+        text = _build_text_tower(embed_dim, text_cfg, prompt_cfg, quick_gelu, cast_dtype)
         self.transformer = text.transformer
         self.vocab_size = text.vocab_size
         self.token_embedding = text.token_embedding
@@ -525,10 +517,12 @@ def build_model_from_openai_state_dict(
         heads=transformer_heads,
         layers=transformer_layers,
     )
+    prompt_cfg = CLIPPromptCfg()
     model = CUSTOMCLIP(
         embed_dim,
         vision_cfg=vision_cfg,
         text_cfg=text_cfg,
+        prompt_cfg=prompt_cfg,
         quick_gelu=quick_gelu,  # OpenAI models were trained with QuickGELU
         cast_dtype=cast_dtype,
     )

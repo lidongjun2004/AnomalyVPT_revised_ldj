@@ -8,7 +8,7 @@ DATALOADER:
   NUM_WORKERS: 8
 
 DATASET:
-  ROOT: "/hy-tmp/ldj/dataset/"
+  ROOT: "/hy-tmp/ldj/dataset/split_mvtec"
   NUM_SHOTS: 256
   MIX: False
 

@@ -5,7 +5,7 @@ import torch
 
 from src.open_clip import create_customer_model_and_transforms
 from src.eva_clip import create_model_and_transforms
-from src.models.CustomCLIP import CustomCLIP
+from src.models.CustomCLIP_CATSeg import CustomCLIP
 from src.models.CustomEVACLIP import CustomEVACLIP
 
 
@@ -28,10 +28,7 @@ def build_model(cfg, device, is_train=True):
         model = CustomEVACLIP(cfg, clip_model)
     else:
         loguru.logger.info("Now load openai model")
-        if is_train:
-            clip_model, _, preprocess = create_customer_model_and_transforms(model_name, pretrained='openai')
-        else:
-            clip_model, _, preprocess = create_customer_model_and_transforms(model_name, pretrained='openai')
+        clip_model, _, preprocess = create_customer_model_and_transforms(model_name, pretrained='openai')
         model = CustomCLIP(cfg, clip_model)
     opt = None
     scheduler = None

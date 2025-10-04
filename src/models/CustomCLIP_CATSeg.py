@@ -2,6 +2,8 @@ from torch import nn
 import torch
 import torch.nn.functional as F
 
+from einops import rearrange, repeat
+
 from src.open_clip import tokenizer
 
 from src.models.SegDecoder import SegDecoder, FPN, TextInceptionSegDecoder, CrossInceptionSegDecoder, GaussianBlur
@@ -12,9 +14,9 @@ class PromptOrder:
         super().__init__()
         self.state_normal_list = [
             "{}",
-            "flawless {}",
-            "perfect {}",
-            "unblemished {}",
+            # "flawless {}",
+            # "perfect {}",
+            # "unblemished {}",
             "{} without flaw",
             "{} without defect",
             "{} without damage"
@@ -28,27 +30,27 @@ class PromptOrder:
         ]
 
         self.template_list = [
-            "a cropped photo of the {}.",
-            "a close-up photo of a {}.",
-            "a close-up photo of the {}.",
-            "a bright photo of a {}.",
-            "a bright photo of the {}.",
-            "a dark photo of the {}.",
-            "a dark photo of a {}.",
-            "a jpeg corrupted photo of the {}.",
-            "a jpeg corrupted photo of the {}.",
-            "a blurry photo of the {}.",
-            "a blurry photo of a {}.",
-            "a photo of a {}.",
-            "a photo of the {}.",
-            "a photo of a small {}.",
-            "a photo of the small {}.",
-            "a photo of a large {}.",
-            "a photo of the large {}.",
-            "a photo of the {} for visual inspection.",
-            "a photo of a {} for visual inspection.",
-            "a photo of the {} for anomaly detection.",
-            "a photo of a {} for anomaly detection."
+            "a cropped photo of the {}."
+            # "a close-up photo of a {}.",
+            # "a close-up photo of the {}.",
+            # "a bright photo of a {}.",
+            # "a bright photo of the {}.",
+            # "a dark photo of the {}.",
+            # "a dark photo of a {}.",
+            # "a jpeg corrupted photo of the {}.",
+            # "a jpeg corrupted photo of the {}.",
+            # "a blurry photo of the {}.",
+            # "a blurry photo of a {}.",
+            # "a photo of a {}.",
+            # "a photo of the {}.",
+            # "a photo of a small {}.",
+            # "a photo of the small {}.",
+            # "a photo of a large {}.",
+            # "a photo of the large {}.",
+            # "a photo of the {} for visual inspection.",
+            # "a photo of a {} for visual inspection.",
+            # "a photo of the {} for anomaly detection.",
+            # "a photo of a {} for anomaly detection."
         ]
 
     def prompt(self, class_name='object'):
@@ -139,56 +141,62 @@ class CustomCLIP(nn.Module):
     def __init__(self, cfg, clip_model):
         super().__init__()
         self.clip_model = clip_model
-        # self.ssl_model =
-        embed_size = self.clip_model.text_projection.size(1)
-        # self.embed_size = embed_size
+        output_dim = self.clip_model.visual.output_dim
+
         self.dtype = self.clip_model.logit_scale.dtype
         text_prompts = PromptOrder().prompt()
         self.text_features = nn.Parameter(
-            self.build_ensemble_text_features(text_prompts, dtype=self.dtype)) # shape = [2, 512]
+            self.build_ensemble_text_features(text_prompts, dtype=self.dtype)) # shape = [class_num, prompt_num, output_dim] = [2, 4, 512]
         self.logit_scale = self.clip_model.logit_scale
         self.ortho_reg = OrthogonalRegularization(
             self.clip_model.visual.learnable_prompt.p)
 
         # pixel level
         self.image_size = cfg.INPUT.SIZE
-        # self.image_size = (448, 448)
         self.patch_size = cfg.MODEL.PATCH_SIZE
-        num_patches = (self.image_size[0] // self.patch_size) * \
-            (self.image_size[1] // self.patch_size)
+        num_patches = (self.image_size[0] // self.patch_size) * (self.image_size[1] // self.patch_size)
 
         prompt_length = cfg.MODEL.VP_LENGTH
         self.gaussian_blur = GaussianBlur()
-        self.seg_decoder = CATSegDecoder(input_dim=num_patches + prompt_length,
-                                      output_dim=num_patches + prompt_length,
-                                      embed_size=self.clip_model.visual.embed_dim,
-                                      output_size=embed_size,
-                                      num_patches=num_patches,
-                                      size=4)
-        # todo: inject proj?
 
-        # self.segti_decoder = TextInceptionSegDecoder(prompt_templates=text_prompts,
-        #                                              model=self.clip_model,
-        #                                              output_dim=embed_size)
+        self.seg_decoder = CATSegDecoder(
+            text_guidance_dim = self.text_features.shape[-1],
+            appearance_guidance_dim = self.text_features.shape[-1],
+            prompt_channel = self.text_features.shape[1],
+            num_heads = self.clip_model.transformer.heads,
+            num_layers = self.clip_model.transformer.layers,
+            feature_resolution = (self.image_size[0] // self.patch_size, self.image_size[1] // self.patch_size)
+        )
 
-        self.cross_decoder = CrossInceptionSegDecoder(prompt_templates=text_prompts,
-                                                      model=self.clip_model,
-                                                      output_dim=embed_size)
+        self.proj_dim = self.clip_model.visual.width
+        self.upsample1 = nn.ConvTranspose2d(self.proj_dim, 256, kernel_size=2, stride=2)
+        self.upsample2 = nn.ConvTranspose2d(self.proj_dim, 128, kernel_size=4, stride=4)
+
+        self.layer_indexes = [3, 7]
+        self.layers = []
+        def make_hook(idx):
+            def hook(m, inp, out):  
+                self.layers.append(out)
+            return hook
+
+        for l in self.layer_indexes:
+            self.clip_model.visual.transformer.resblocks[l].register_forward_hook(make_hook(l))
+        # self.cross_decoder = CrossInceptionSegDecoder(prompt_templates=text_prompts,
+        #                                               model=self.clip_model,
+        #                                               output_dim=output_dim)
 
         from src.models.SegDecoder import QuickGELU, SwiGLU, GELUFFN
-        # self.mlp = SwiGLU(in_features=embed_size, hidden_features=8)
-        self.mlp = GELUFFN(in_features=embed_size, hidden_features=8)
+
+        self.mlp = GELUFFN(in_features=output_dim, hidden_features=8)
 
         self.fpn_scale = [2, 1, 1/2, 1/4]
         self.fpn_decoder = nn.ModuleList([
             # self.mlp
             nn.Sequential(
-                nn.Linear(embed_size, 8),
+                nn.Linear(output_dim, 8),
                 nn.GELU(),
-                nn.Linear(8, embed_size),)
+                nn.Linear(8, output_dim),)
             for _ in self.fpn_scale])
-        # TODO: check device!!
-        # self.simple_text_encoder = SimpleTextEncoder(clip_model)
 
     @torch.no_grad()
     def build_ensemble_text_features(self, text_prompts, dtype):
@@ -198,94 +206,70 @@ class CustomCLIP(nn.Module):
             for prompt in templates:
                 tokens = tokenizer.tokenize(prompt)
                 cur_embed = self.clip_model.encode_text(
-                    tokens).type(dtype=dtype) # shape = [1, 512]
+                    tokens).type(dtype=dtype) # shape = [output_dim] = [512]
                 ensemble_text_features = torch.cat(
                     [ensemble_text_features, cur_embed], dim=0)
-            # ensemble_text_features.shape = [num_prompt, 512]
-            avg_text_features = torch.mean(
-                ensemble_text_features, dim=0, keepdim=True) # shape = [1, 512]
-            text_features = torch.cat([text_features, avg_text_features]) # shape = [2, 512]
+            # ensemble_text_features.shape = [prompt_num, output_dim] = [4, 512]
+            ensemble_text_features = ensemble_text_features.unsqueeze(0) # shape = [1, prompt_num, output_dim] = [1, 4, 512]
+            text_features = torch.cat([text_features, ensemble_text_features], dim=0)
 
-        return text_features
+        return text_features # shape = [class_num, prompt_num, output_dim] = [2, 4, 512]
 
     def forward(self, image, is_train=False, up=True, impaths=None):
         output = dict()
-        # b, c, h, w = image.shape
         text_features = self.text_features / \
-            self.text_features.norm(dim=-1, keepdim=True)
+            self.text_features.norm(dim=-1, keepdim=True) # shape = [class_num, prompt_num, output_dim] = [2, 4, 512]
+        self.layers = []
         res = self.clip_model.encode_image(image.type(self.dtype),
                                            mask=[],
                                            proj=True,
                                            train=is_train)
-        origin_image_features = res['pooled'] # shape = [B, C] = [32, 512]
-        output['cls_token'] = res['pooled'] # shape = [B, C] = [32, 512]
+        origin_image_features = res['pooled'] # shape = [B, 1, output_dim] = [32, 1, 512]
+        output['cls_token'] = res['pooled'] # shape = [B, 1, C] = [32, 1, 512]
 
-        origin_layers_image_feature = res['output_layers'] # shape = [4, B, C] = [4, 32, 512]
+        origin_layers_image_feature = res['output_layers'] # shape = [4, B, 1, output_dim] = [4, 32, 1, 512]
         image_features = origin_image_features / \
-            origin_image_features.norm(dim=-1, keepdim=True) # shape = [B, C] = [32, 512]
+            origin_image_features.norm(dim=-1, keepdim=True) # shape = [B, output_dim] = [32, 512]
         logit_scale = self.logit_scale.exp()
-        raw_score = image_features @ text_features.t() # shape = [B, 2] = [32, 2]
-        logits = logit_scale * raw_score # shape = [B, 2] = [32, 2]
+        # image_features: [B, output_dim]
+        # text_features: [2, 4, output_dim]
+        raw_score = torch.einsum('bod,cqd->bcq', image_features.unsqueeze(1), text_features) # [B, 2, 4]
+        logits = logit_scale * raw_score # shape = [B, class_num, prompt_num] = [32, 2, 4]
 
-        output['logits'] = logits # shape = [B, 2] = [32, 2]
+        output['logits'] = logits # shape = [B, class_num] = [32, 2]
 
-        expand_text_features = text_features.repeat(image_features.shape[0], 1, 1) # shape = [B, 2, C] = [32, 2, 512]
+        expand_text_features = text_features.unsqueeze(0).repeat(image_features.shape[0], 1, 1, 1) # shape = [B, class_num, prompt_num, output_dim] = [32, 2, 4, 512]
         if up:
             # seg decoder
-            patch_features = res['tokens'] # shape = [B, H*W, C] = [32, 196, 512]
-            patch_features = self.seg_decoder(
-                patch_features, expand_text_features, idx=-1)  # shape = [B, H*W, C] = [32, 196, 512]
-            patch_features = patch_features / \
-                patch_features.norm(dim=-1, keepdim=True) # shape = [B, H*W, C] = [32, 196, 512]
-            anomaly_map = calc_anomaly_map(patch_features, text_features, patch_size=self.patch_size, img_size=self.image_size[0],
-                                           scale=logit_scale, blur=self.gaussian_blur)
-            
+            patch_features = res['seg_group'] # shape = [B, patch_num, output_dim] = [32, 196, 512]
+            # CLIP ViT features for guidance
+            res3 = rearrange(patch_features, "B (H W) C -> B C H W", H=14)
+            res4 = rearrange(self.layers[0][1:, :, :], "(H W) B C -> B C H W", H=14)
+            res5 = rearrange(self.layers[1][1:, :, :], "(H W) B C -> B C H W", H=14)
+            res4 = self.upsample1(res4) # shape = [B, 256, 48, 48]
+            res5 = self.upsample2(res5) # shape = [B, 128, 96, 96]
+            appearance_guidance = [res3, res4, res5]
+
+            patch_features = rearrange(patch_features, "B (h w) c->B c h w", h=14, w=14)
+            score_map = self.seg_decoder(patch_features, expand_text_features, appearance_guidance) 
+            # shape = [B, class_num, image_H, image_W] = [32, 2, 224, 224]
+            anomaly_map = score_map[:, 1, :, :] # [B, image_H, image_W] = [32, 224, 224]
+
             mid_map = []
-            mid_patch_features = res['output_token_layers']
+            mid_patch_features = res['seg_feat'] # shape = [lens, B, patch_num, output_dim] = [4, 32, 196, 512]
             for idx, mid_patch_feature in enumerate(mid_patch_features):
-                mid_patch_feature = self.seg_decoder(
-                    mid_patch_feature, expand_text_features, idx)
-                mid_patch_feature = mid_patch_feature / \
-                    mid_patch_feature.norm(dim=-1, keepdim=True)
-                mid_map.append(calc_anomaly_map(mid_patch_feature, text_features, img_size=self.image_size[0],
-                                                scale=logit_scale, blur=self.gaussian_blur))
+                mid_patch_feature = rearrange(mid_patch_feature, "B (h w) c->B c h w", h=14, w=14)
+                mid_score_map = self.seg_decoder(
+                    mid_patch_feature, expand_text_features, appearance_guidance)
+                mid_map.append(mid_score_map[:, 1, :, :]) # [B, image_H, image_W] = [32, 224, 224]
 
-            # # output['out_map'] = harmonic_mean_images(stack_images(anomaly_map, []))
-
-            # # fpn decoder
-            # TODO: aggregate output map with different scale, now FPN from the last layer output of ViT
-            # fpn_maps = []
-            # fpn_features = res['fpn_feat'] # TODO: check device!
-
-            # for idx, fpn_feature in enumerate(fpn_features):
-            #     fpn_feature = self.fpn_decoder[idx](fpn_feature) # [B, H*W, embed_size]
-            #     fpn_feature = fpn_feature / fpn_feature.norm(dim=-1, keepdim=True)
-            #     cur_scale_map = calc_anomaly_map(fpn_feature,
-            #                                     text_features,
-            #                                     img_size=self.image_size[0],
-            #                                     patch_size=self.patch_size // self.fpn_scale[idx])
-            #     fpn_maps.append(cur_scale_map) # [bs, pixel_count, 2]
-            # output['out_map'] = aggregate_fpn_logits(fpn_maps)
-            # print(f"output map shape: {output['out_map'].shape}")
-
-            # segti decoder
+            
 
             patch_features = res['tokens']
-            # img_pe = self.clip_model.visual.positional_embedding[1:, :].unsqueeze(0)
-            # img_pe = F.interpolate(img_pe, size=self.clip_model.text_projection.size(1), mode='linear')
-            # print(impaths)
+            
             seg_res = None
-            # print(f"success enter, impaths len: {len(impaths)}")
-
-            # anomaly_map, seg_res = self.segti_decoder(patch_features, image=impaths, train=True)
-
-            # anomaly_map = self.segti_decoder.extern_forward(patch_features, img_pe)
-
-
-            # cross decoder
-            # anomaly_map = self.cross_decoder(patch_features, origin_image_features)
-
-            output['mid_map'] = []
+            
+            output['mid_map'] = mid_map
             output['map'] = anomaly_map
             output['out_map'] = anomaly_map
             if seg_res:
@@ -299,7 +283,7 @@ class CustomCLIP(nn.Module):
                 feat = origin_layers_image_feature[idx]
                 feat = feat / feat.norm(dim=-1, keepdim=True)
                 logit_scale = self.logit_scale.exp()
-                raw_score = feat @ text_features.t()
+                raw_score = torch.einsum('bod,cqd->bcq', image_features.unsqueeze(1), text_features)
                 cur_logits = logit_scale * raw_score
                 mid_logits.append(cur_logits)
             output['mid_logits'] = mid_logits

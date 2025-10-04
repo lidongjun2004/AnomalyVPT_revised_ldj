@@ -376,23 +376,10 @@ class LearnablePrompt(nn.Module):
 
     def forward(self, x, grid_size=(24, 24), idx=0):
         cat_prompt = self.p[idx].unsqueeze(0).permute(
-            1, 0, 2).repeat(1, x.shape[1], 1)
+            1, 0, 2).repeat(1, x.shape[1], 1) # shape = [length, B, width] = [16, 32, 768]
         x = torch.cat(
-            [x[: (grid_size[0] * grid_size[1] + 1), :, :], cat_prompt], dim=0)
-        # x = torch.cat([x, cat_prompt], dim=0)
-        """
-        如果有新的prompt,原有的直接被丢弃/往下传,如何利用好prompt的信息?
-        1. GroupBlock
-            - 将prompt作为q,patch token作为kv,用注意力学习“哪些patch属于哪些prompt”
-            - 每个prompt相当于一个聚类中心。
-                - 推理时找文本最相似的prompt作为cls token,将其关注的patches作为分割结果
-                - cls token本身关注的patches也是分割结果
-            - 当前文本空间只有ensemble a/n, 如果prompt cnt > text cnt
-                - 总有prompt关注到文本无关信息
-                - 或所有prompt都一样(体现在context length大小影响不大)
-            - 
-            - 
-        """
+            [x[: (grid_size[0] * grid_size[1] + 1), :, :], cat_prompt], dim=0) 
+        # shape = [grid ** 2 + 1 + length, B, width] = [197 + 16, 32, 768] = [213, 32, 768]
         return x
 
 
@@ -467,8 +454,7 @@ class VisionPromptTransformer(nn.Module):
 
         # setting a patch_dropout of 0. would mean it is disabled and this function would be the identity fn
         self.patch_dropout = (
-            PatchDropout(
-                patch_dropout) if patch_dropout > 0.0 else nn.Identity()
+            PatchDropout(patch_dropout) if patch_dropout > 0.0 else nn.Identity()
         )
 
         #####################################
@@ -645,24 +631,24 @@ class VisionPromptTransformer(nn.Module):
         return loss
 
     def forward_features(
-        self, x: torch.Tensor, x_seg: torch.Tensor, train=False, new_grid_size=(24, 24)
+        self, x: torch.Tensor, x_seg: torch.Tensor, train=False, new_grid_size=(24, 24) # (14, 14)
     ):
+        # ViT-B-16-224
+            # x.shape = [grid ** 2 + 1, bs, width]
+            # x_seg.shape = [grid ** 2, bs, width]
+            # new_grid_size = (14, 14)
         patch_features = []
         self.res["inner_fpn_feat"] = []
-        B, C, H, W = self.res["shape"]
-        # true_size = self.res['true_size']
-        # x.shape = [grid ** 2 + 1, bs, width]
-        # x_seg.shape = [grid ** 2, bs, width]
+        B, C, H, W = self.res["shape"] # 32, 768, 14, 14
         for i, layer in enumerate(self.transformer.resblocks.children()):
-            if self.prompt_layer_idx is not None and i in self.prompt_layer_idx:
+            if self.prompt_layer_idx is not None and i in self.prompt_layer_idx: # 8
                 x = self.learnable_prompt(
-                    x, grid_size=new_grid_size, idx=self.prompt_layer_idx.index(
-                        i)
-                )
-                x = layer(x)
+                    x, grid_size=new_grid_size, idx=self.prompt_layer_idx.index(i)
+                ) # shape = [grid ** 2 + 1 + length, B, width] = [213, 32, 768]
+                x = layer(x) # shape = [grid ** 2 + 1 + length, B, width] = [213, 32, 768]
 
             else:
-                x = layer(x)
+                x = layer(x) # shape = [grid ** 2 + 1, B, width] = [197, 32, 768]
 
             # if i in self.feature_layer:
             #     patch_features.append(
@@ -751,7 +737,7 @@ class VisionPromptTransformer(nn.Module):
 
 
         # self.res['true_size'] = b
-        if self.input_patchnorm:
+        if self.input_patchnorm: # False
             # einops - rearrange(x, 'b c (h p1) (w p2) -> b (h w) (c p1 p2)')
             x = x.reshape(
                 x.shape[0],
@@ -766,16 +752,15 @@ class VisionPromptTransformer(nn.Module):
             x = self.patchnorm_pre_ln(x)
 
         else:
-            x = self.conv1(x)  # shape = [*, width, grid, grid]
-            _, _, H, W = x.shape
-            self.res["shape"] = x.shape
-            # shape = [*, width, grid ** 2]
-            x = x.reshape(x.shape[0], x.shape[1], -1)
-            x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
+            x = self.conv1(x)  # shape = [B, width, grid, grid] = [32, 768, 14, 14]
+            _, _, H, W = x.shape # 14, 14
+            self.res["shape"] = x.shape # shape = [B, width, H, W] = [32, 768, 14, 14]
+            x = x.reshape(x.shape[0], x.shape[1], -1) # shape = [B, width, grid ** 2] = [32, 768, 196]
+            x = x.permute(0, 2, 1)  # shape = [B, grid ** 2, width] = [32, 196, 768]
         # class embeddings and positional embeddings
         x = torch.cat(
             [
-                self.class_embedding.to(x.dtype)
+                self.class_embedding.to(x.dtype) # shape = [B, 1, width] = [32, 1, 768]
                 + torch.zeros(
                     x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device
                 ),
@@ -783,26 +768,26 @@ class VisionPromptTransformer(nn.Module):
             ],
             dim=1,
         )
-        # shape = [*, grid ** 2 + 1, width]
+        # shape = [B, grid ** 2 + 1, width] = [32, 197, 768]
 
-        side = int((self.positional_embedding.shape[0] - 1) ** 0.5)
-        new_side = int((x.shape[1] - 1) ** 0.5)
-        positional_embedding = self._get_updated_positional_embedding(x, new_side, side)
+        side = int((self.positional_embedding.shape[0] - 1) ** 0.5) # 14
+        new_side = int((x.shape[1] - 1) ** 0.5) # 14
+        positional_embedding = self._get_updated_positional_embedding(x, new_side, side) # shape = [grid ** 2 + 1, width] = [197, 768]
 
-        x = x + positional_embedding.to(x.dtype)
+        x = x + positional_embedding.to(x.dtype) # shape = [B, grid ** 2 + 1, width] = [32, 197, 768]
         ##################################
         tokens_list = []
         # a patch_dropout of 0. would mean it is disabled and this function would do nothing but return what was passed in
         x = self.patch_dropout(x)
         x = self.ln_pre(x)
 
-        # NLD -> LND # shape = [grid ** 2 + 1, bs, width]
-        x = x.permute(1, 0, 2)
+        # NLD -> LND 
+        x = x.permute(1, 0, 2) # shape = [grid ** 2 + 1, B, width] = [197, 32, 768]
 
         # x = self.transformer(x, save_feature=save_feature)
         # Prompt Tuning
         # forward_features
-        x_seg = x[1:, :, :]
+        x_seg = x[1:, :, :] # shape = [grid ** 2, B, width] = [196, 32, 768]
         self.forward_features(
             x, x_seg, train, new_grid_size=(new_side, new_side))
         # self.forward_head(train)

@@ -12,5 +12,10 @@
         "width": 512,
         "heads": 8,
         "layers": 12
+    },
+    "prompt_cfg": {
+        "vision_prompt_layer_idx": [8], 
+        "vision_prompt_length": [16],
+        "feature_layer": [7, 11, 15, 23]
     }
 }

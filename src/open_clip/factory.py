@@ -44,7 +44,7 @@ def _rescan_model_configs():
     for cf in config_files:
         with open(cf, 'r') as f:
             model_cfg = json.load(f)
-            if all(a in model_cfg for a in ('embed_dim', 'vision_cfg', 'text_cfg')):
+            if all(a in model_cfg for a in ('embed_dim', 'vision_cfg', 'text_cfg', 'prompt_cfg')):
                 _MODEL_CONFIGS[cf.stem] = model_cfg
 
     _MODEL_CONFIGS = {k: v for k, v in sorted(_MODEL_CONFIGS.items(), key=lambda x: _natural_key(x[0]))}
@@ -160,7 +160,7 @@ def create_model(
 
     if pretrained and pretrained.lower() == 'openai':
         logging.info(f'Loading pretrained {model_name} from OpenAI.')
-        model = load_openai_model(
+        model_openai = load_openai_model(
             model_name,
             precision=precision,
             device=device,
@@ -168,9 +168,9 @@ def create_model(
             cache_dir=cache_dir,
         )
         # to always output dict even if it is clip
-        if output_dict and hasattr(model, "output_dict"):
-            model.output_dict = True
-    else:
+        if output_dict and hasattr(model_openai, "output_dict"):
+            model_openai.output_dict = True
+    if model_name is not None:
         model_cfg = model_cfg or get_model_config(model_name)
         if model_cfg is not None:
             logging.info(f'Loaded {model_name} model config.')
@@ -255,7 +255,7 @@ def create_model(
         if jit:
             model = torch.jit.script(model)
 
-    return model
+    return model, model_openai
 
 #########################################
 from .model_revise import CUSTOMCLIP
@@ -298,9 +298,9 @@ def create_customer_model(
     if isinstance(device, str):
         device = torch.device(device)
 
-    if pretrained and pretrained.lower() == 'openai' and model_name != 'ViT-B-16-224':
+    if pretrained and pretrained.lower() == 'openai' and model_name != model_name:
         logging.info(f'Loading pretrained {model_name} from OpenAI.')
-        model = load_openai_model(
+        model_openai = load_openai_model(
             model_name,
             precision=precision,
             device=device,
@@ -309,8 +309,8 @@ def create_customer_model(
         )
 
         # to always output dict even if it is clip
-        if output_dict and hasattr(model, "output_dict"):
-            model.output_dict = True
+        if output_dict and hasattr(model_openai, "output_dict"):
+            model_openai.output_dict = True
     else:
         model_cfg = model_cfg or get_model_config(model_name)
         if model_cfg is not None:
