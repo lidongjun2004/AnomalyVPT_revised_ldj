@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # 定义固定的数据集和标志
 dataset="mvtec"
 
@@ -10,10 +9,10 @@ config_name="ViT-B-16-224"
 output_dir="./output/train_vpt_${dataset}_${config_name}/"
 
 # 执行训练命令
-CUDA_VISIBLE_DEVICES=2 python main.py \
+python main.py \
   --config-file "./configs/${config_name}.yaml" \
   --output-dir "$output_dir" \
   --name "$dataset" \
   --seed 1003 \
   --device 0 \
-  --pixel
+  --pixel \

@@ -160,6 +160,8 @@ class CustomCLIP(nn.Module):
         self.gaussian_blur = GaussianBlur()
 
         self.seg_decoder = CATSegDecoder(
+            image_height = self.clip_model.visual.image_height, 
+            image_width = self.clip_model.visual.image_width, 
             text_guidance_dim = self.text_features.shape[-1],
             appearance_guidance_dim = self.text_features.shape[-1],
             prompt_channel = self.text_features.shape[1],
@@ -225,53 +227,54 @@ class CustomCLIP(nn.Module):
                                            proj=True,
                                            train=is_train)
         origin_image_features = res['pooled'] # shape = [B, 1, output_dim] = [32, 1, 512]
-        output['cls_token'] = res['pooled'] # shape = [B, 1, C] = [32, 1, 512]
+        output['cls_token'] = res['pooled'] # shape = [B, 1, output_dim] = [32, 1, 512]
 
         origin_layers_image_feature = res['output_layers'] # shape = [4, B, 1, output_dim] = [4, 32, 1, 512]
         image_features = origin_image_features / \
             origin_image_features.norm(dim=-1, keepdim=True) # shape = [B, output_dim] = [32, 512]
         logit_scale = self.logit_scale.exp()
-        # image_features: [B, output_dim]
-        # text_features: [2, 4, output_dim]
-        raw_score = torch.einsum('bod,cqd->bcq', image_features.unsqueeze(1), text_features) # [B, 2, 4]
+        # image_features: [B, output_dim] = [32, 512]
+        # text_features: [class_num, prompt_num, output_dim] = [2, 4, 512]
+        raw_score = torch.einsum('bod,cqd->bcq', image_features.unsqueeze(1), text_features) # shape = [B, class_num, prompt_num] = [32, 2, 4]
         logits = logit_scale * raw_score # shape = [B, class_num, prompt_num] = [32, 2, 4]
-
-        output['logits'] = logits # shape = [B, class_num] = [32, 2]
-
+        output['logits'] = logits.max(dim=-1)[0] # shape = [B, class_num] = [32, 2]
         expand_text_features = text_features.unsqueeze(0).repeat(image_features.shape[0], 1, 1, 1) # shape = [B, class_num, prompt_num, output_dim] = [32, 2, 4, 512]
         if up:
             # seg decoder
             patch_features = res['seg_group'] # shape = [B, patch_num, output_dim] = [32, 196, 512]
             # CLIP ViT features for guidance
-            res3 = rearrange(patch_features, "B (H W) C -> B C H W", H=14)
+            res3 = rearrange(patch_features, "B (H W) C -> B C H W", H=14) # shape = [B, output_dim, patch_H, patch_W] = [32, 512, 14, 14]
             res4 = rearrange(self.layers[0][1:, :, :], "(H W) B C -> B C H W", H=14)
             res5 = rearrange(self.layers[1][1:, :, :], "(H W) B C -> B C H W", H=14)
-            res4 = self.upsample1(res4) # shape = [B, 256, 48, 48]
-            res5 = self.upsample2(res5) # shape = [B, 128, 96, 96]
+            res4 = self.upsample1(res4) # shape = [B, 256, 28, 28]
+            res5 = self.upsample2(res5) # shape = [B, 128, 56, 56]
             appearance_guidance = [res3, res4, res5]
 
-            patch_features = rearrange(patch_features, "B (h w) c->B c h w", h=14, w=14)
+            patch_features = rearrange(patch_features, "B (H W) C->B C H W", H=14, W=14) # shape = [B, output_dim, patch_H, patch_W] = [32, 512, 14, 14]
+            
             score_map = self.seg_decoder(patch_features, expand_text_features, appearance_guidance) 
             # shape = [B, class_num, image_H, image_W] = [32, 2, 224, 224]
+            
             anomaly_map = score_map[:, 1, :, :] # [B, image_H, image_W] = [32, 224, 224]
-
-            mid_map = []
-            mid_patch_features = res['seg_feat'] # shape = [lens, B, patch_num, output_dim] = [4, 32, 196, 512]
-            for idx, mid_patch_feature in enumerate(mid_patch_features):
-                mid_patch_feature = rearrange(mid_patch_feature, "B (h w) c->B c h w", h=14, w=14)
-                mid_score_map = self.seg_decoder(
-                    mid_patch_feature, expand_text_features, appearance_guidance)
-                mid_map.append(mid_score_map[:, 1, :, :]) # [B, image_H, image_W] = [32, 224, 224]
+            
+            
+            # mid_map = []
+            # mid_patch_features = res['seg_feat'] # shape = [lens, B, patch_num, output_dim] = [4, 32, 196, 512]
+            # for idx, mid_patch_feature in enumerate(mid_patch_features):
+            #     mid_patch_feature = rearrange(mid_patch_feature, "B (h w) c->B c h w", h=14, w=14)
+            #     mid_score_map = self.seg_decoder(
+            #         mid_patch_feature, expand_text_features, appearance_guidance)
+            #     mid_map.append(mid_score_map[:, 1, :, :]) # [B, image_H, image_W] = [32, 224, 224]
 
             
 
-            patch_features = res['tokens']
-            
+            patch_features = res['tokens'] # shape = [B, patch_num, width] = [32, 196, 768]
+
             seg_res = None
             
-            output['mid_map'] = mid_map
-            output['map'] = anomaly_map
-            output['out_map'] = anomaly_map
+            # output['mid_map'] = mid_map
+            output['map'] = anomaly_map # shape = [B, image_H, image_W] = [32, 224, 224]
+            output['out_map'] = score_map.permute(0, 2, 3, 1) # shape = [B, image_H, image_W, class_num] = [32, 224, 224, 2]
             if seg_res:
                 output['A_ksi'] = seg_res['A_ksi']
                 output['A_phi'] = seg_res['A_phi']
@@ -280,11 +283,13 @@ class CustomCLIP(nn.Module):
             output['ortho_loss'] = self.ortho_reg()
             mid_logits = []
             for idx in range(len(origin_layers_image_feature)):
-                feat = origin_layers_image_feature[idx]
+                feat = origin_layers_image_feature[idx] # shape = [B, output_dim] = [32, 512]
                 feat = feat / feat.norm(dim=-1, keepdim=True)
+
                 logit_scale = self.logit_scale.exp()
-                raw_score = torch.einsum('bod,cqd->bcq', image_features.unsqueeze(1), text_features)
-                cur_logits = logit_scale * raw_score
+                raw_score = torch.einsum('bod,cqd->bcq', image_features.unsqueeze(1), text_features) # shape = [B, class_num, prompt_num] = [32, 2, 4]
+                cur_logits = logit_scale * raw_score # shape = [B, class_num, prompt_num] = [32, 2, 4]
+                cur_logits = cur_logits.max(dim=-1)[0] # shape = [B, class_num] = [32, 2]
                 mid_logits.append(cur_logits)
             output['mid_logits'] = mid_logits
 

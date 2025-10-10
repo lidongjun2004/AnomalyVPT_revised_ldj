@@ -490,7 +490,7 @@ class VisionPromptTransformer(nn.Module):
             )
             # self.fixed_prompt = FixedPrompt()
 
-        assert len(group_layer_idx) == len(group_length)
+        # assert len(group_layer_idx) == len(group_length)
         if group_layer_idx is not None:
             self.group_prompt = GroupingPrompt(
                 cnt=len(group_layer_idx), length=group_length, width=self.embed_dim

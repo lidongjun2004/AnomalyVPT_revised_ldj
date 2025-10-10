@@ -396,6 +396,10 @@ class VisionPromptTransformer(nn.Module):
         patch_height, patch_width = self.patch_size = to_2tuple(patch_size)
         self.grid_size = (image_height // patch_height,
                           image_width // patch_width)
+        self.image_height = image_height
+        self.image_width = image_width
+        self.patch_height = patch_height
+        self.patch_width = patch_width
         self.output_dim = output_dim
         self.width = width
         self.num_heads = heads
@@ -837,6 +841,10 @@ class VisionTransformer(nn.Module):
         self.output_tokens = output_tokens
         image_height, image_width = self.image_size = to_2tuple(image_size)
         patch_height, patch_width = self.patch_size = to_2tuple(patch_size)
+        self.image_height = image_height
+        self.image_width = image_width
+        self.patch_height = patch_height
+        self.patch_width = patch_width
         self.grid_size = (image_height // patch_height,
                           image_width // patch_width)
         self.output_dim = output_dim

@@ -413,7 +413,7 @@ class ClassTransformerLayer(nn.Module):
 
         x_pool = x_pool + self.attention(self.norm1(x_pool), guidance) # Attention
         x_pool = x_pool + self.MLP(self.norm2(x_pool)) # MLP
-
+        
         x_pool = rearrange(x_pool, '(B H W) T C -> (B T) C H W', H=H_pool, W=W_pool)
         x_pool = F.interpolate(x_pool, size=(H, W), mode='bilinear', align_corners=True)
         x_pool = rearrange(x_pool, '(B T) C H W -> B C T H W', B=B)
@@ -729,6 +729,8 @@ class CATSegDecoder(nn.Module):
     def __init__(
         self,
         *,
+        image_height: int = 224,
+        image_width: int = 224,
         train_class_json: str = None,
         test_class_json: str = None,
         clip_pretrained: str = None,
@@ -763,8 +765,9 @@ class CATSegDecoder(nn.Module):
             prompt_channel=prompt_channel,
             )
         self.transformer = transformer
-
+        self.image_height = image_height
+        self.image_width = image_width
 
     def forward(self, img_feat, text_feat, appearance_guidance):
-        out = self.transformer(img_feat, text_feat, appearance_guidance)
+        out = F.interpolate(self.transformer(img_feat, text_feat, appearance_guidance), size=(self.image_height, self.image_width), mode='bilinear', align_corners=False)
         return out

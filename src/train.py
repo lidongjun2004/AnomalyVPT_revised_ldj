@@ -51,8 +51,8 @@ def train(cfg, device):
     def forward(model, image, label, mask, impaths):
         up = cfg.PIXEL
         res = model(image, is_train=True, up=up, impaths=impaths)
-        output = res['logits']
-        mid_output = res['mid_logits']
+        output = res['logits'] # shape = [B, class_num] = [32, 2]
+        mid_output = res['mid_logits'] # list of shape = [B, class_num] = [32, 2]
         loss_hinge = HingeLoss(th=0.8)
         global_loss = loss_hinge(output, label)
 
@@ -71,10 +71,10 @@ def train(cfg, device):
         loss_summary['i-auroc'] = compute_auroc(output.detach(), label).item()
 
         if up:
-            anomaly_map_logits = res['out_map']  # [32, 336, 336, 2]
-            anomaly_map = anomaly_map_logits.softmax(-1)
-            anomaly_map_logits = anomaly_map_logits.permute(0, 3, 1, 2)  # [32, 2, 336, 336]
-            anomaly_map = anomaly_map.permute(0, 3, 1, 2)
+            anomaly_map_logits = res['out_map']  # shape = [B, image_H, image_W, class_num] = [32, 224, 224, 2]
+            anomaly_map = anomaly_map_logits.softmax(-1) # shape = [B, image_H, image_W, class_num] = [32, 224, 224, 2]
+            anomaly_map_logits = anomaly_map_logits.permute(0, 3, 1, 2)  # shape = [B, class_num, image_H, image_W] = [32, 2, 224, 224]
+            anomaly_map = anomaly_map.permute(0, 3, 1, 2) # shape = [B, class_num, image_H, image_W] = [32, 2, 224, 224]
             # mid_anomaly_map_logits = res['mid_map']
             loss_focal = FocalLoss()
             loss_dice = BinaryDiceLoss()
